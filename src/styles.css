@@ -450,11 +450,10 @@ fieldset.format-choice label {
 }
 @keyframes reveal {
   from {
-    opacity: 0;
+    /* Keep answer text at full contrast throughout the reveal. */
     transform: translateY(6px);
   }
   to {
-    opacity: 1;
     transform: none;
   }
 }

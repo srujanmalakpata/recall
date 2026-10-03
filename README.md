@@ -1,6 +1,84 @@
 # recall
 
-An offline-first Progressive Web App for studying with flashcards.
+An offline-first flashcard PWA with SM-2 scheduling, Markdown/CSV import and keyboard-driven study.
+
+[![CI](https://github.com/srujanmalakpata/recall/actions/workflows/ci.yml/badge.svg)](https://github.com/srujanmalakpata/recall/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![TypeScript 5.9](https://img.shields.io/badge/TypeScript-5.9-3178C6.svg)](https://www.typescriptlang.org/)
+[![Node.js 22.20+](https://img.shields.io/badge/Node.js-22.20%2B-339933.svg)](https://nodejs.org/)
+
+**Live demo:** https://srujanmalakpata.github.io/recall/
+
+<p align="center">
+  <img src="docs/screenshot-light.png" alt="Review screen, light theme" width="49%">
+  <img src="docs/screenshot-dark.png" alt="Review screen, dark theme" width="49%">
+</p>
+
+## Highlights
+
+- **199 unit, property and component tests; 96.4% line coverage**, measured with
+  `npm run test:coverage`. [Verification](VERIFICATION.md#current-verification-2026-10-03).
+- **Pure SM-2 scheduling with invariant checks**: `sm2.test.ts` enforces the ease floor, growing
+  successful intervals and lapse rules with fast-check. [Test inventory](VERIFICATION.md#test-inventory).
+- **Transactional writes across tabs**: repository contracts and `ReviewSession.test.tsx`
+  prevent duplicate grading and stale-card overwrites. [Design](DESIGN.md) · [test inventory](VERIFICATION.md#test-inventory).
+- **Local-first storage and an offline app shell**: IndexedDB holds cards and reviews; Workbox
+  precaches the production build and updates wait for explicit consent. [Architecture](#architecture).
+- **Lossless Markdown/CSV interchange and validated backups**: round-trip properties,
+  line-numbered import errors and a spreadsheet formula-injection guard. [Test inventory](VERIFICATION.md#test-inventory).
+
+**Tech stack:** React 19 · TypeScript 5.9 (strict) · Vite 8 · IndexedDB (`idb`) · Workbox ·
+Vitest / Testing Library / fast-check · Playwright / axe-core. No backend or account required.
+
+## Quickstart
+
+Use Node.js 22.20+ LTS and npm (also supports Node 24.12+ LTS or 26+). From a fresh clone:
+
+```bash
+git clone https://github.com/srujanmalakpata/recall.git
+cd recall
+npm ci
+npm run build
+npm run preview
+```
+
+Open http://localhost:4173, choose a sample deck and start reviewing: **Space** reveals the answer;
+**1–4** grades it. For offline mode, first wait for DevTools → Application → Service Workers to show
+an activated worker controlling the page, then switch Network to Offline and reload. For development,
+use `npm run dev` at http://localhost:5173; the service worker runs only in production builds.
+
+Contents: [Architecture](#architecture) · [Features](#features) · [Import formats](#import-formats) ·
+[Checks](#tests-and-checks) · [Results](#results) · [Limitations](#limitations) · [License](#license).
+
+## Architecture
+
+```mermaid
+flowchart LR
+  subgraph Browser
+    UI["React components<br/>(review, decks, import, stats)"] -->|actions| Store["StoreProvider<br/>useReducer + context"]
+    Store -->|pure calls| Core["Pure core<br/>sm2 · session · stats · parsers · backup"]
+    Store -->|Repository interface| IDB[("IndexedDB<br/>decks · cards · reviews · flags")]
+    SW["Service worker<br/>(Workbox precache)"] -.serves app shell offline.-> UI
+  end
+  Tests["Vitest + RTL"] -.MemoryRepository.-> Store
+```
+
+```
+src/
+  domain/   types, sm2 (scheduler), session (review state machine), stats, days   ← pure
+  io/       markdown + csv import/export, backup validation                       ← pure
+  storage/  Repository interface, IndexedDbRepository (idb), MemoryRepository, persistent-storage request
+  state/    appReducer + StoreProvider (the only place that touches clock + storage), cross-tab change feed
+  router/   tiny hash router
+  components/ App, ReviewSession, ImportPanel, DeckView, StatsView + SVG BarChart, ErrorBoundary, …
+e2e/        Playwright specs (+ axe-core) run against `vite preview`
+scripts/    base-path-smoke.ts (offline Pages sub-path check), screenshots.ts, generate-icons.ts
+```
+
+Writes go to IndexedDB first and are dispatched to React state only after they succeed. See
+[DESIGN.md](DESIGN.md) for the trade-offs.
+
+## Features
 
 It schedules every card with the
 **SM-2 spaced-repetition algorithm**, stores everything in **IndexedDB**, and keeps working with the
@@ -10,10 +88,6 @@ keyboard only (Space to reveal, 1–4 to grade), and see your reviews per day, r
 workload in SVG charts. It is built with React 19, strict TypeScript and Vite, and tested at
 three levels: Vitest unit and property tests, React Testing Library component tests, and Playwright
 end-to-end tests with axe-core accessibility scans against the production build.
-
-Repository: [srujanmalakpata/recall](https://github.com/srujanmalakpata/recall).
-
-## Features
 
 - **SM-2 scheduler** as a pure TypeScript module (`src/domain/sm2.ts`): ease factor, 1 → 6 → n×EF
   intervals, lapses and a 1.3 ease floor. Unit tests plus fast-check property tests for its
@@ -43,18 +117,7 @@ Repository: [srujanmalakpata/recall](https://github.com/srujanmalakpata/recall).
   drawn as SVG with a table alternative.
 - **Sample decks** (Data structures, HTTP basics) seeded on first open.
 
-## Quick start
-
-Requires Node.js 22.6+ (tested with Node 22.22; the two helper scripts use
-`--experimental-strip-types`).
-
-```bash
-npm ci
-npm run dev                # http://localhost:5173 (no service worker in dev mode)
-npm run build && npm run preview   # production build with service worker: http://localhost:4173
-```
-
-To try offline mode: open the preview once, then switch DevTools → Network to "Offline" and reload.
+## Import formats
 
 Markdown import format:
 
@@ -68,34 +131,6 @@ The cached copy is still valid; no body is sent.
 
 CSV import needs a header row naming `front` and `back` (or `question` and `answer`) columns.
 
-## Architecture
-
-```mermaid
-flowchart LR
-  subgraph Browser
-    UI["React components<br/>(review, decks, import, stats)"] -->|actions| Store["StoreProvider<br/>useReducer + context"]
-    Store -->|pure calls| Core["Pure core<br/>sm2 · session · stats · parsers · backup"]
-    Store -->|Repository interface| IDB[("IndexedDB<br/>decks · cards · reviews · flags")]
-    SW["Service worker<br/>(Workbox precache)"] -.serves app shell offline.-> UI
-  end
-  Tests["Vitest + RTL"] -.MemoryRepository.-> Store
-```
-
-```
-src/
-  domain/   types, sm2 (scheduler), session (review state machine), stats, days   ← pure
-  io/       markdown + csv import/export, backup validation                       ← pure
-  storage/  Repository interface, IndexedDbRepository (idb), MemoryRepository, persistent-storage request
-  state/    appReducer + StoreProvider (the only place that touches clock + storage), cross-tab change feed
-  router/   tiny hash router
-  components/ App, ReviewSession, ImportPanel, DeckView, StatsView + SVG BarChart, ErrorBoundary, …
-e2e/        Playwright specs (+ axe-core) run against `vite preview`
-scripts/    base-path-smoke.ts (GitHub Pages sub-path check), generate-icons.ts
-```
-
-Writes go to IndexedDB first and are dispatched to React state only after they succeed. See
-[DESIGN.md](DESIGN.md) for the trade-offs.
-
 ## Tests and checks
 
 ```bash
@@ -106,27 +141,36 @@ npm test                # Vitest unit, property and component tests
 npm run test:coverage   # same, with v8 coverage
 npm run e2e             # Playwright + axe-core against the production build (vite preview)
 npm run check           # all of the above, plus the build
-npm run smoke:base      # build with BASE_PATH (default /recall/) into dist-base/, check in Chromium
+npm run smoke:base      # check assets, service-worker scope and offline reviews under /recall/
+npm run screenshots     # build, serve and capture the study screen in light/dark themes
 ```
 
 Playwright starts `vite preview` itself; run `npm run build` first. On a fresh machine install the
 browser with `npx playwright install --with-deps chromium`. If you already have a matching Chromium
 elsewhere, set `CHROMIUM_PATH` to its executable.
 
-CI (`.github/workflows/ci.yml`) runs lint, format, typecheck, unit tests with coverage, the build and
-the Playwright suite. `.github/workflows/deploy.yml` runs after CI succeeds on a push to `main`,
-builds with the base path reported by `actions/configure-pages` (`/<repo>/` for a project site, `/`
-for a `<user>.github.io` site) and deploys with `actions/deploy-pages`. To turn it on: Settings →
-Pages → Source: **GitHub Actions**, then add the repository variable `PAGES_ENABLED=true` (Settings →
-Secrets and variables → Actions → Variables). Until then the deploy jobs are skipped, not failed,
-including manual runs. A manual run (Actions → Deploy → Run workflow) skips the CI requirement and
-must target `main`, because the `github-pages` environment accepts only the default branch. The
-smoke test assumes the repository is named `recall`; for another name run
-`BASE_PATH=/<repo>/ npm run smoke:base`.
+CI (`.github/workflows/ci.yml`) runs lint, format, typecheck, coverage, the production build,
+Playwright and the offline Pages sub-path smoke test. `.github/workflows/deploy.yml` deploys
+a `main` commit after the whole CI workflow passes on it (one-time setup: **Settings → Pages → Source:
+GitHub Actions** and the repository variable `PAGES_ENABLED=true`). Manual runs also target `main`. The build uses the base path reported by
+`actions/configure-pages` (`/recall/` here), with a matching service-worker scope, precached
+navigation fallback and `404.html` for Pages navigation. App routes use hashes (`/recall/#/stats`).
+For another repository name, run `BASE_PATH=/<repo>/ npm run smoke:base`.
+
+`npm run screenshots` builds and serves locally on port 4181, seeds sample data in fresh browser
+contexts, and writes the two study-screen PNGs linked above at 1280×800. Install Chromium with the
+command above first; `CHROMIUM_PATH` is supported here too.
 
 ## Results
 
-Measured on a shared 4-vCPU Linux container, 2026-10-03 (Node 22.22, Chromium 141 via Playwright
+The current macOS verification (2026-10-03, Node 26.10.0) passed the cached lockfile install,
+lint, formatting, strict typechecking, all 199 tests and the production build. Overall line
+coverage remains 96.4%. On the same Mac, all 10 Playwright end-to-end tests (including offline
+service-worker reload and axe-core light/dark scans) passed in Chromium, and `npm run screenshots`
+produced the images above. Resolving the latest
+Playwright version also needs unavailable registry access. See [VERIFICATION.md](VERIFICATION.md#current-verification-2026-10-03).
+
+Earlier baseline, before the changes in this checkout: measured on a shared 4-vCPU Linux container, 2026-10-03 (Node 22.22, Chromium 141 via Playwright
 1.56.1), from a clean state (build outputs, caches and `node_modules` removed, then `npm ci`). Test details and recorded
 commands are in [VERIFICATION.md](VERIFICATION.md).
 
@@ -143,7 +187,6 @@ commands are in [VERIFICATION.md](VERIFICATION.md).
 
 ## Limitations
 
-- No users or production deployment.
 - Data lives only in this browser's IndexedDB; moving devices means downloading and restoring a JSON
   backup. There is no sync and no account.
 - Unless the browser grants persistent storage (Backup page → "Ask the browser to keep my data"),
@@ -161,8 +204,6 @@ commands are in [VERIFICATION.md](VERIFICATION.md).
 - SM-2 is a 1987 algorithm; newer schedulers such as FSRS need fewer reviews for the same retention.
 - Accessibility was checked with axe-core and keyboard tests only, not with a manual screen-reader
   session; automated tools catch only part of real accessibility issues.
-- The CI and GitHub Pages workflows are schema-validated locally but have never run on GitHub.
-  Deployment is validated, never deployed.
 
 ## License
 

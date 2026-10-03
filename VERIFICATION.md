@@ -1,6 +1,60 @@
 # recall verification
 
-## Test environment
+## Current verification (2026-10-03)
+
+Environment: macOS arm64, Node.js 26.10.0, npm 11.19.1; project-local dependencies from the
+existing lockfile. Registry DNS, listening ports and Chromium's macOS process registration are
+restricted. These results apply to the current changes; the earlier Linux results below are a
+historical baseline, not a claim that current browser checks passed.
+
+| Check                                                                                                                                       | Result  | Evidence                                                                                                                                                                                                                                                                                                            |
+| ------------------------------------------------------------------------------------------------------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm ci --cache /private/tmp/recall-npm-cache --fetch-retries=0 --fetch-timeout=20000`                                                      | BLOCKED | Registry request failed with `ENOTFOUND registry.npmjs.org`.                                                                                                                                                                                                                                                        |
+| `npm ci --offline --cache /private/tmp/recall-npm-cache`                                                                                    | PASS    | Copied the available npm cache into a writable temporary directory; installed 524 packages. Repeated successfully after updating the root engine constraint in both manifests.                                                                                                                                      |
+| `npm run lint && npm run format:check && npm run typecheck`                                                                                 | PASS    | ESLint reports no problems, Prettier reports all matched files formatted, strict TypeScript exits 0. Local ignored working notes initially caused formatting failures; they are now excluded from formatting.                                                                                                       |
+| `npm run test:coverage`                                                                                                                     | PASS    | 199 tests in 20 files. Statements 94.93%, branches 88.27%, functions 94.28%, lines 96.4%. Assertions and property-test counts are unchanged.                                                                                                                                                                        |
+| `npm run build`                                                                                                                             | PASS    | Main JS 280.61 kB / 88.52 kB gzip; CSS 8.08 kB; Workbox precaches 12 entries / 300.16 KiB.                                                                                                                                                                                                                          |
+| `BASE_PATH=/recall/ npm run build`                                                                                                          | PASS    | Main JS 280.65 kB / 88.52 kB gzip; 12 precache entries / 300.23 KiB.                                                                                                                                                                                                                                                |
+| Pages fallback command from `deploy.yml`, followed by static Node assertions                                                                | PASS    | `404.html` matches `index.html`; all 5 asset URLs start with `/recall/`; manifest start URL and scope resolve to `/recall/`; bundled worker registration uses `/recall/sw.js` and scope `/recall/`; the relative Workbox navigation fallback resolves to `/recall/index.html`. The test-only update hook is absent. |
+| Workflow YAML parsing and trigger assertions using Ruby's standard-library YAML parser                                                      | PASS    | CI jobs: quality/build/e2e; deployment jobs: build/deploy. Deployment runs after a successful CI run on a push to main, or manually; it requires the `PAGES_ENABLED` repository variable. This is syntax/structure checking, not the GitHub Actions schema validator.                                               |
+| `npm exec --offline --cache /private/tmp/recall-npm-cache --package=@action-validator/cli -- action-validator .github/workflows/deploy.yml` | BLOCKED | Validator metadata is not cached (`ENOTCACHED`); registry access is unavailable.                                                                                                                                                                                                                                    |
+| Static CSS text-token contrast calculation                                                                                                  | PASS    | Text, muted text, links, status text and chart-axis text against each theme's backgrounds, plus primary-button text: minimum 5.57:1 in light and 6.30:1 in dark. These calculations do not replace browser axe-core scans. The answer reveal retains full opacity throughout its movement.                          |
+| `npm run e2e`                                                                                                                               | BLOCKED | Preview server cannot bind `::1:4173` (`listen EPERM`); no application test ran. An independent Chromium launch also fails at `MachPortRendezvousServer` with permission denied. Both theme scans and offline review assertions therefore remain unverified here.                                                   |
+| `npm run smoke:base`                                                                                                                        | BLOCKED | The `/recall/` production build succeeds; Chromium launch is denied before the browser checks can run.                                                                                                                                                                                                              |
+| `BASE_PATH=recall npm run smoke:base`                                                                                                       | PASS    | Expected rejection: exit 1 with `BASE_PATH must start and end with "/"`.                                                                                                                                                                                                                                            |
+| `npm run screenshots`                                                                                                                       | BLOCKED | Production build succeeds; the screenshot preview cannot bind `127.0.0.1:4181` (`listen EPERM`). No PNGs were generated.                                                                                                                                                                                            |
+| `npm view @playwright/test version --cache /private/tmp/recall-npm-cache --fetch-retries=0 --fetch-timeout=10000`                           | BLOCKED | `ENOTFOUND`; the offline query also returns `ENOTCACHED`. The latest 1.x version cannot be determined or fetched. Playwright and its core override remain at 1.56.1.                                                                                                                                                |
+| GitHub-hosted CI and Pages deployment for these changes                                                                                     | NOT_RUN | No commit, push or deployment was performed. Pages must be enabled with the GitHub Actions source before the next main-branch push.                                                                                                                                                                                 |
+| `git diff --check` and tracked-output inspection                                                                                            | PASS    | No whitespace errors; no tracked node_modules, dist, coverage or browser-test output. LICENSE is unchanged.                                                                                                                                                                                                         |
+
+### Defects and changes
+
+- **Offline keyboard race:** the test waited for service-worker control but pressed Space immediately
+  after hash navigation, then pressed 3 without observing the revealed answer. Link clicks do not
+  wait for React's route render/effects. Every keyboard reveal now waits for the reveal button's
+  focus and then for answer focus before grading. The `1 of 12 done` assertion and the offline
+  persistence assertion are unchanged. No retries or fixed delays were added; CI retries are disabled.
+  This diagnosis follows the event order in the code; runtime confirmation is blocked above.
+- **Transient answer contrast:** fading the answer from zero opacity blends its text into the
+  background during the reveal. The animation now moves fully opaque text, preserving the existing
+  duration and reduced-motion behavior. Axe-core scans wait for observable animation completion
+  and report affected nodes if they fail. The specific reported macOS axe failure cannot be
+  reproduced in this sandbox; a current full scan is still required.
+- **Skipped deployment:** deploys were skipped because Pages and the `PAGES_ENABLED` repository variable
+  were never set up; both are now enabled, and the CI-gated trigger is unchanged. The base path and
+  service-worker configuration already support `/recall/`; deployment adds a Pages `404.html` shell.
+  The CI sub-path check now also grades and reloads offline.
+- **Toolchain/documentation drift:** replaced the Node 22.6 claim with the locked toolchain's
+  supported engine ranges; added the screenshot command, badges, highlights and runnable clone
+  instructions; separated historical browser results from this run's blocked checks.
+
+Remaining validation: run `npm run e2e`, `npm run smoke:base` and `npm run screenshots` on an
+unrestricted host, update Playwright and its core override together when the registry is reachable,
+and verify the next CI/Pages runs. Screenshot links refer to the files those host captures will create.
+
+## Earlier Linux baseline (2026-10-03)
+
+### Test environment
 
 - **Date:** 2026-10-03
 - **Environment:** a shared 4-vCPU Linux container (x86_64, shared with other jobs), Node.js 22.22.0,
@@ -29,7 +83,7 @@
 | 7   | `npm run smoke:base` (`scripts/base-path-smoke.ts`)                        | PASS    | builds with the default `BASE_PATH=/recall/` into `dist-base/` and serves it on :4180; all 5 asset URLs in index.html start with `/recall/`; `service worker scope: http://localhost:4180/recall/`; no page errors, failed requests or HTTP errors; `BASE_PATH=recall` (no slashes) is rejected       |
 | 8   | `npx @action-validator/cli .github/workflows/ci.yml` (and `deploy.yml`)    | PASS    | both exit 0 against the GitHub Actions workflow schema (an invalid workflow file is rejected)                                                                                                                                                                                                         |
 | 9   | PyYAML `yaml.safe_load` on both workflow files (`uv run --with pyyaml`)    | PASS    | `ci.yml jobs: quality, build, e2e`; `deploy.yml jobs: build, deploy`, triggers `workflow_run` (after CI) and `workflow_dispatch`; `build.if` requires `vars.PAGES_ENABLED == 'true'` for both triggers                                                                                                |
-| 10  | GitHub Actions CI and GitHub Pages deployment on github.com                | NOT_RUN | Workflows are validated locally only; CI has never run on GitHub. Deployment is validated, never deployed.                                                                                                                                                                                            |
+| 10  | GitHub Actions CI and GitHub Pages deployment on github.com                | NOT_RUN | Not exercised in this local baseline. Later CI runs reported offline failures and skipped deployment; this baseline does not establish deployment success.                                                                                                                                            |
 | 11  | `npx playwright install --with-deps chromium` (CI step)                    | NOT_RUN | The test environment uses pre-installed Chromium matching Playwright 1.56.1; the CI browser-install step is not run.                                                                                                                                                                                  |
 
 ## Test inventory
@@ -159,9 +213,9 @@ session summary) and assert zero violations.
 
 - SM-2 same-day rules are documented as this app's interpretation in
   [DESIGN.md](DESIGN.md#sm-2-deviations).
-- Node.js 22.6+ is required because the helper scripts use `--experimental-strip-types`.
-- The smoke test defaults to `/recall/` and accepts `BASE_PATH`; both automatic and manual
-  Pages deployment require `PAGES_ENABLED`.
+- Use Node.js 22.20+ (22.x), 24.12+ (24.x) or 26+ to satisfy the locked toolchain's engine requirements;
+  helper scripts use `--experimental-strip-types`.
+- The smoke test defaults to `/recall/` and accepts `BASE_PATH`; deployment runs after a green CI run on a push to `main` (or manually on `main`) and requires the `PAGES_ENABLED` repository variable.
 - The dynamic-array sample card distinguishes growth factors (×2 as an example, about ×1.5 for
   Java's ArrayList).
 - `restart` and `isDue` have callers and tests; the `simulateAvailable` test hook is absent
@@ -176,3 +230,10 @@ session summary) and assert zero violations.
 | Day rollover in a real browser                                    | NOT_RUN | Component tests use an injected clock and fake timers; Playwright does not cover rollover.                                          |
 | Manual screen-reader testing (NVDA, VoiceOver)                    | NOT_RUN | Accessibility coverage consists of axe-core scans and keyboard tests.                                                               |
 | Mobile installability prompts                                     | NOT_RUN | No mobile-device checks are recorded.                                                                                               |
+
+## Host re-run (2026-10-03, macOS, Node 26.10.0, Playwright 1.56.1 Chromium)
+
+| Check                                                                          | Result | Evidence                                                                                                                                                                       |
+| ------------------------------------------------------------------------------ | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `CI=true npx playwright test --project=chromium` (production build, retries 0) | PASS   | 10 passed (7.8 s), including "works offline after the first load" and both WCAG 2.2 AA scans; before these fixes 8/10 passed on macOS and the offline test failed on Linux CI. |
+| `npm run screenshots`                                                          | PASS   | Wrote `docs/screenshot-light.png` and `docs/screenshot-dark.png` (1280x800).                                                                                                   |

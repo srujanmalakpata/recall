@@ -77,6 +77,8 @@ jobs:
         run: npm run e2e
         env:
           CI: true
+      - name: Check Pages base path and offline persistence
+        run: npm run smoke:base
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
