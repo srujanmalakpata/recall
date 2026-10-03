@@ -6,10 +6,28 @@ import { type Page, expect, test } from '@playwright/test';
 const networkingDeck = fileURLToPath(new URL('./fixtures/networking.md', import.meta.url));
 
 async function expectNoAxeViolations(page: Page) {
+  // Scan the settled screen, including the reveal animation, rather than an arbitrary frame.
+  await page.evaluate(async () => {
+    await Promise.all(document.getAnimations().map((animation) => animation.finished));
+  });
   const results = await new AxeBuilder({ page })
     .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
     .analyze();
-  expect(results.violations.map((v) => `${v.id}: ${v.help} (${v.nodes.length})`)).toEqual([]);
+  expect(
+    results.violations.map((v) => ({
+      id: v.id,
+      help: v.help,
+      nodes: v.nodes.map((node) => ({ target: node.target, summary: node.failureSummary })),
+    })),
+  ).toEqual([]);
+}
+
+async function revealWithKeyboard(page: Page) {
+  // Hash navigation and React effects finish asynchronously after the link click.
+  // Focus on the answer also confirms that the grade shortcut is ready.
+  await expect(page.getByRole('button', { name: /Show answer/ })).toBeFocused();
+  await page.keyboard.press('Space');
+  await expect(page.getByTestId('card-back')).toBeFocused();
 }
 
 async function importNetworkingDeck(page: Page) {
@@ -45,7 +63,7 @@ test('import a Markdown deck, review it with the keyboard, reload and keep progr
     ['What is the difference between TCP and UDP?', '3'],
   ] as const) {
     await expect(front).toHaveText(question);
-    await page.keyboard.press('Space');
+    await revealWithKeyboard(page);
     await expect(page.getByTestId('card-back')).toBeVisible();
     await page.keyboard.press(key);
   }
@@ -77,7 +95,7 @@ test('keyboard users can leave the review screen with Enter, during and after a 
   await page.getByRole('link', { name: 'Review 3 due from Networking basics' }).click();
   for (let i = 0; i < 3; i += 1) {
     await expect(page.getByRole('button', { name: /Show answer/ })).toBeFocused();
-    await page.keyboard.press('Space');
+    await revealWithKeyboard(page);
     await expect(page.getByTestId('card-back')).toBeVisible();
     await page.keyboard.press('3');
   }
@@ -106,7 +124,7 @@ test('works offline after the first load (service worker)', async ({ page, conte
   await page.reload();
   await expect(page.getByRole('heading', { level: 1, name: 'Your decks' })).toBeVisible();
   await page.getByRole('link', { name: 'Review 12 due from HTTP basics' }).click();
-  await page.keyboard.press('Space');
+  await revealWithKeyboard(page);
   await page.keyboard.press('3');
   await expect(page.getByText('1 of 12 done')).toBeVisible();
 
@@ -128,7 +146,7 @@ test('a second tab picks up reviews made in another tab (BroadcastChannel)', asy
   const reviewTab = await context.newPage();
   await reviewTab.goto('/#/review');
   await expect(reviewTab.getByRole('button', { name: /Show answer/ })).toBeFocused();
-  await reviewTab.keyboard.press('Space');
+  await revealWithKeyboard(reviewTab);
   await reviewTab.keyboard.press('3');
   await expect(reviewTab.getByText('1 of 24 done')).toBeVisible();
 
@@ -159,7 +177,7 @@ for (const [reducedMotion, check] of [
     await page.emulateMedia({ reducedMotion });
     await page.goto('/#/review');
     await expect(page.getByTestId('card-front')).toBeVisible();
-    await page.keyboard.press('Space');
+    await revealWithKeyboard(page);
     const duration = await page
       .getByTestId('card-back')
       .evaluate((el) => getComputedStyle(el).animationDuration);
@@ -180,7 +198,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
 
     await page.goto('/#/review');
     await expect(page.getByTestId('card-front')).toBeVisible();
-    await page.keyboard.press('Space');
+    await revealWithKeyboard(page);
     await expect(page.getByTestId('card-back')).toBeVisible();
     await expectNoAxeViolations(page);
 
@@ -203,7 +221,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
     await page.getByRole('button', { name: 'Import 1 card (skip 1)' }).click();
     await page.getByRole('link', { name: 'Review 1 due from Axe check' }).click();
     await expect(page.getByRole('button', { name: /Show answer/ })).toBeFocused();
-    await page.keyboard.press('Space');
+    await revealWithKeyboard(page);
     await expect(page.getByTestId('card-back')).toBeVisible();
     await page.keyboard.press('3');
     await expect(page.getByRole('heading', { name: 'Session complete' })).toBeFocused();

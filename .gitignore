@@ -22,3 +22,6 @@ blob-report/
 .env
 .env.*
 !.env.example
+
+# local working notes
+.codex-briefs/

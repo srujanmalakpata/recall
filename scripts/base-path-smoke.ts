@@ -3,13 +3,13 @@
  *
  * Builds into dist-base/ with BASE_PATH (default /recall/), leaving dist/ unchanged,
  * and serves the result with `vite preview` on port 4180. Chromium checks asset URLs,
- * sample-deck rendering, service-worker scope, and page, request and HTTP errors.
+ * sample-deck rendering, service-worker scope, offline persistence, and browser errors.
  *
  * Run `npm run smoke:base`; override BASE_PATH for another repository path and
  * CHROMIUM_PATH for a specific Chromium executable (as in playwright.config.ts).
  */
 import { type ChildProcess, spawn, spawnSync } from 'node:child_process';
-import { chromium } from '@playwright/test';
+import { chromium, expect } from '@playwright/test';
 
 const BASE = process.env.BASE_PATH ?? '/recall/';
 if (!BASE.startsWith('/') || !BASE.endsWith('/')) {
@@ -80,13 +80,27 @@ async function main(): Promise<void> {
     const outside = urls.filter((url) => !url.startsWith(BASE));
     if (outside.length > 0) problems.push(`asset URLs outside ${BASE}: ${outside.join(', ')}`);
 
+    await page.waitForFunction(() => navigator.serviceWorker.controller !== null);
     const scope = await page.evaluate(async () => (await navigator.serviceWorker.ready).scope);
     if (scope !== `${ORIGIN}${BASE}`) problems.push(`service worker scope is ${scope}`);
+
+    // Both hash routes and full reloads must use the precached shell under this scope.
+    await page.context().setOffline(true);
+    await page.goto(`${ORIGIN}${BASE}#/review`);
+    await expect(page.getByRole('button', { name: /Show answer/ })).toBeFocused();
+    await page.keyboard.press('Space');
+    await expect(page.getByTestId('card-back')).toBeFocused();
+    await page.keyboard.press('3');
+    await expect(page.getByText('1 of 24 done')).toBeVisible();
+    await page.goto(`${ORIGIN}${BASE}#/stats`);
+    await page.reload();
+    await expect(page.getByTestId('reviews-today')).toHaveText('1');
+    await page.context().setOffline(false);
 
     console.log(`index.html asset URLs (${urls.length}): ${urls.join(', ')}`);
     console.log(`service worker scope: ${scope}`);
     if (problems.length > 0) fail(`base-path smoke test FAILED:\n  ${problems.join('\n  ')}`);
-    console.log(`base-path smoke test PASSED: app rendered under ${BASE} with no errors`);
+    console.log(`base-path smoke test PASSED: app rendered and saved a review offline under ${BASE}`);
   } finally {
     await browser.close();
     server?.kill();

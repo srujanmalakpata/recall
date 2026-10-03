@@ -50,6 +50,8 @@ jobs:
         env:
           # "/<repo>" for a project site, "" for a <user>.github.io site; Vite needs a trailing slash.
           BASE_PATH: ${{ steps.pages.outputs.base_path }}/
+      - name: Add the Pages navigation fallback
+        run: node --input-type=module -e 'import { copyFileSync } from "node:fs"; copyFileSync("dist/index.html", "dist/404.html");'
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist/
