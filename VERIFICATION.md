@@ -16,7 +16,7 @@ historical baseline, not a claim that current browser checks passed.
 | `npm run build`                                                                                                                             | PASS    | Main JS 280.61 kB / 88.52 kB gzip; CSS 8.08 kB; Workbox precaches 12 entries / 300.16 KiB.                                                                                                                                                                                                                          |
 | `BASE_PATH=/recall/ npm run build`                                                                                                          | PASS    | Main JS 280.65 kB / 88.52 kB gzip; 12 precache entries / 300.23 KiB.                                                                                                                                                                                                                                                |
 | Pages fallback command from `deploy.yml`, followed by static Node assertions                                                                | PASS    | `404.html` matches `index.html`; all 5 asset URLs start with `/recall/`; manifest start URL and scope resolve to `/recall/`; bundled worker registration uses `/recall/sw.js` and scope `/recall/`; the relative Workbox navigation fallback resolves to `/recall/index.html`. The test-only update hook is absent. |
-| Workflow YAML parsing and trigger assertions using Ruby's standard-library YAML parser                                                      | PASS    | CI jobs: quality/build/e2e; deployment jobs: build/deploy. Deployment runs after a successful CI run on a push to main, or manually; it requires the `PAGES_ENABLED` repository variable. This is syntax/structure checking, not the GitHub Actions schema validator.                                                          |
+| Workflow YAML parsing and trigger assertions using Ruby's standard-library YAML parser                                                      | PASS    | CI jobs: quality/build/e2e; deployment jobs: build/deploy. Deployment runs after a successful CI run on a push to main, or manually; it requires the `PAGES_ENABLED` repository variable. This is syntax/structure checking, not the GitHub Actions schema validator.                                               |
 | `npm exec --offline --cache /private/tmp/recall-npm-cache --package=@action-validator/cli -- action-validator .github/workflows/deploy.yml` | BLOCKED | Validator metadata is not cached (`ENOTCACHED`); registry access is unavailable.                                                                                                                                                                                                                                    |
 | Static CSS text-token contrast calculation                                                                                                  | PASS    | Text, muted text, links, status text and chart-axis text against each theme's backgrounds, plus primary-button text: minimum 5.57:1 in light and 6.30:1 in dark. These calculations do not replace browser axe-core scans. The answer reveal retains full opacity throughout its movement.                          |
 | `npm run e2e`                                                                                                                               | BLOCKED | Preview server cannot bind `::1:4173` (`listen EPERM`); no application test ran. An independent Chromium launch also fails at `MachPortRendezvousServer` with permission denied. Both theme scans and offline review assertions therefore remain unverified here.                                                   |
@@ -40,8 +40,8 @@ historical baseline, not a claim that current browser checks passed.
   duration and reduced-motion behavior. Axe-core scans wait for observable animation completion
   and report affected nodes if they fail. The specific reported macOS axe failure cannot be
   reproduced in this sandbox; a current full scan is still required.
-- **Skipped deployment:** removed the `PAGES_ENABLED` prerequisite and changed the trigger to
-  pushes on main, with manual main-branch runs still supported. Existing Vite base-path and
+- **Skipped deployment:** deploys were skipped because Pages and the `PAGES_ENABLED` repository variable
+  were never set up; both are now enabled, and the CI-gated trigger is unchanged. The base path and
   service-worker configuration already support `/recall/`; deployment adds a Pages `404.html` shell.
   The CI sub-path check now also grades and reloads offline.
 - **Toolchain/documentation drift:** replaced the Node 22.6 claim with the locked toolchain's
@@ -215,7 +215,7 @@ session summary) and assert zero violations.
   [DESIGN.md](DESIGN.md#sm-2-deviations).
 - Use Node.js 22.20+ (22.x), 24.12+ (24.x) or 26+ to satisfy the locked toolchain's engine requirements;
   helper scripts use `--experimental-strip-types`.
-- The smoke test defaults to `/recall/` and accepts `BASE_PATH`; current deployment runs on pushes to `main` and manual runs on `main`, without a repository-variable gate.
+- The smoke test defaults to `/recall/` and accepts `BASE_PATH`; deployment runs after a green CI run on a push to `main` (or manually on `main`) and requires the `PAGES_ENABLED` repository variable.
 - The dynamic-array sample card distinguishes growth factors (×2 as an example, about ×1.5 for
   Java's ArrayList).
 - `restart` and `isDue` have callers and tests; the `simulateAvailable` test hook is absent
@@ -233,7 +233,7 @@ session summary) and assert zero violations.
 
 ## Host re-run (2026-10-03, macOS, Node 26.10.0, Playwright 1.56.1 Chromium)
 
-| Check | Result | Evidence |
-|---|---|---|
-| `CI=true npx playwright test --project=chromium` (production build, retries 0) | PASS | 10 passed (7.8 s), including "works offline after the first load" and both WCAG 2.2 AA scans; before these fixes 8/10 passed on macOS and the offline test failed on Linux CI. |
-| `npm run screenshots` | PASS | Wrote `docs/screenshot-light.png` and `docs/screenshot-dark.png` (1280x800). |
+| Check                                                                          | Result | Evidence                                                                                                                                                                       |
+| ------------------------------------------------------------------------------ | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `CI=true npx playwright test --project=chromium` (production build, retries 0) | PASS   | 10 passed (7.8 s), including "works offline after the first load" and both WCAG 2.2 AA scans; before these fixes 8/10 passed on macOS and the offline test failed on Linux CI. |
+| `npm run screenshots`                                                          | PASS   | Wrote `docs/screenshot-light.png` and `docs/screenshot-dark.png` (1280x800).                                                                                                   |
